@@ -18,6 +18,9 @@
       "backgroundColor": "#F2F2F7",
       "barStyle": "black-translucent",
       "description": "Un'app per la gestione delle finanze personali con estetica iOS."
-    }
+    },
+    "plugins": [
+      "expo-font"
+    ]
   }
 }
