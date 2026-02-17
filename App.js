@@ -13,15 +13,16 @@ import {
     Platform,
     KeyboardAvoidingView,
     useWindowDimensions,
+    BlurView, // Note: On web this might need a polyfill or fallback, we'll use a semi-transparent blur effect
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 
 const STORAGE_KEYS = {
-    TRANSACTIONS: '@mio_budget_transactions_v2',
-    TOTAL_BUDGET: '@mio_budget_total_v2',
-    HAS_ONBOARDED: '@mio_budget_onboarded_v2',
+    TRANSACTIONS: '@mio_budget_transactions_v3',
+    TOTAL_BUDGET: '@mio_budget_total_v3',
+    HAS_ONBOARDED: '@mio_budget_onboarded_v3',
 };
 
 const CATEGORIES = [
@@ -35,8 +36,6 @@ const CATEGORIES = [
 
 export default function App() {
     const { width, height } = useWindowDimensions();
-    const colorScheme = useColorScheme();
-    const isDark = colorScheme === 'dark';
     const isLargeScreen = width > 768;
 
     // --- State ---
@@ -156,28 +155,31 @@ export default function App() {
     // --- UI Components ---
     if (loading || hasOnboarded === null) return null;
 
-    const styles = createStyles(isDark, isLargeScreen);
+    const styles = createStyles(isLargeScreen, width);
 
     // --- Onboarding Screen ---
     if (!hasOnboarded) {
         return (
             <SafeAreaView style={styles.onboardingContainer}>
-                <ExpoStatusBar style={isDark ? 'light' : 'dark'} />
+                <ExpoStatusBar style="light" />
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.centered}>
-                    <View style={styles.onboardingCard}>
-                        <Text style={styles.emojiTitle}>💰</Text>
-                        <Text style={styles.onboardingTitle}>Benvenuto!</Text>
-                        <Text style={styles.onboardingSubtitle}>Qual è il tuo budget attuale per iniziare a risparmiare?</Text>
+                    <View style={styles.glassOnboardingCard}>
+                        <View style={styles.iconHole}>
+                            <Ionicons name="sparkles" size={40} color="#007AFF" />
+                        </View>
+                        <Text style={styles.onboardingTitle}>Benvenuto</Text>
+                        <Text style={styles.onboardingSubtitle}>Qual è il tuo punto di partenza?</Text>
                         <TextInput
-                            style={styles.onboardingInput}
-                            placeholder="es. 1000"
+                            style={styles.glassInput}
+                            placeholder="0.00 €"
+                            placeholderTextColor="rgba(255,255,255,0.3)"
                             keyboardType="numeric"
                             value={totalBudget}
                             onChangeText={setTotalBudget}
                             autoFocus
                         />
-                        <TouchableOpacity style={styles.cartoonButton} onPress={completeOnboarding}>
-                            <Text style={styles.cartoonButtonText}>Iniziamo! 🚀</Text>
+                        <TouchableOpacity style={styles.liquidButton} onPress={completeOnboarding}>
+                            <Text style={styles.liquidButtonText}>Inizia ora</Text>
                         </TouchableOpacity>
                     </View>
                 </KeyboardAvoidingView>
@@ -188,74 +190,94 @@ export default function App() {
     // --- Main App ---
     return (
         <SafeAreaView style={styles.container}>
-            <ExpoStatusBar style={isDark ? 'light' : 'dark'} />
+            <ExpoStatusBar style="light" />
 
             <View style={styles.contentWrapper}>
                 {/* Header */}
                 <View style={styles.header}>
                     <View>
-                        <Text style={styles.headerTitle}>Il Mio Budget</Text>
-                        <Text style={styles.headerSubtitle}>Tieni d'occhio i tuoi soldi</Text>
+                        <Text style={styles.headerTitle}>Budget</Text>
+                        <Text style={styles.headerSubtitle}>Analisi delle tue finanze</Text>
                     </View>
                     <TouchableOpacity
                         style={styles.headerAddButton}
                         onPress={() => setIsModalVisible(true)}
                     >
-                        <Ionicons name="add" size={30} color="black" />
+                        <Ionicons name="add" size={28} color="white" />
                     </TouchableOpacity>
                 </View>
 
                 <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                    {/* Summary Card */}
-                    <View style={[styles.mainCard, { backgroundColor: '#FFD93D' }]}>
-                        <Text style={styles.cardLabel}>SALDO ATTUALE</Text>
-                        <Text style={styles.balanceValue}>€ {currentBalance.toFixed(2)}</Text>
-                        <View style={styles.progressTrack}>
-                            <View
-                                style={[
-                                    styles.progressBar,
-                                    { width: `${spendingPercentage}%`, backgroundColor: spendingPercentage > 80 ? '#FF3B30' : '#4D96FF' }
-                                ]}
-                            />
+                    {/* Main Glass Card */}
+                    <View style={styles.liquidCard}>
+                        <View style={styles.cardHeader}>
+                            <Text style={styles.cardInfoLabel}>SALDO ATTUALE</Text>
+                            <Ionicons name="card-outline" size={20} color="rgba(255,255,255,0.5)" />
                         </View>
-                        <Text style={styles.cardInfo}>Hai usato il {spendingPercentage.toFixed(0)}% del tuo budget di €{totalBudget}</Text>
+                        <Text style={styles.balanceValue}>€ {currentBalance.toFixed(2)}</Text>
+
+                        <View style={styles.progressContainer}>
+                            <View style={styles.progressTrack}>
+                                <View
+                                    style={[
+                                        styles.progressBar,
+                                        { width: `${spendingPercentage}%`, backgroundColor: spendingPercentage > 85 ? '#FF3B30' : '#007AFF' }
+                                    ]}
+                                />
+                            </View>
+                            <Text style={styles.progressInfo}>{spendingPercentage.toFixed(0)}% utilizzato</Text>
+                        </View>
                     </View>
 
-                    {/* Quick Stats */}
-                    <View style={styles.statsRow}>
-                        <View style={[styles.statBox, { backgroundColor: '#6BCB77' }]}>
-                            <Text style={styles.statLabel}>ENTRATE</Text>
-                            <Text style={styles.statValue}>+ €{transactions.filter(t => t.type === 'income').reduce((a, b) => a + parseFloat(b.amount), 0).toFixed(0)}</Text>
+                    {/* Activity Cards */}
+                    <View style={styles.statsLayout}>
+                        <View style={styles.liquidStatBox}>
+                            <View style={[styles.statIcon, { backgroundColor: 'rgba(52, 199, 89, 0.1)' }]}>
+                                <Ionicons name="arrow-up-circle" size={22} color="#34C759" />
+                            </View>
+                            <View>
+                                <Text style={styles.statBoxLabel}>ENTRATE</Text>
+                                <Text style={[styles.statBoxValue, { color: '#34C759' }]}>+ €{transactions.filter(t => t.type === 'income').reduce((a, b) => a + parseFloat(b.amount), 0).toFixed(0)}</Text>
+                            </View>
                         </View>
-                        <View style={[styles.statBox, { backgroundColor: '#FF6B6B' }]}>
-                            <Text style={styles.statLabel}>USCITE</Text>
-                            <Text style={styles.statValue}>- €{transactions.filter(t => t.type === 'expense').reduce((a, b) => a + parseFloat(b.amount), 0).toFixed(0)}</Text>
+                        <View style={styles.liquidStatBox}>
+                            <View style={[styles.statIcon, { backgroundColor: 'rgba(255, 59, 48, 0.1)' }]}>
+                                <Ionicons name="arrow-down-circle" size={22} color="#FF3B30" />
+                            </View>
+                            <View>
+                                <Text style={styles.statBoxLabel}>USCITE</Text>
+                                <Text style={[styles.statBoxValue, { color: '#FF3B30' }]}>- €{transactions.filter(t => t.type === 'expense').reduce((a, b) => a + parseFloat(b.amount), 0).toFixed(0)}</Text>
+                            </View>
                         </View>
                     </View>
 
                     {/* History */}
-                    <Text style={styles.sectionTitle}>Ultime Movimentazioni ✏️</Text>
+                    <View style={styles.sectionHeader}>
+                        <Text style={styles.sectionTitle}>Transazioni Recenti</Text>
+                        <TouchableOpacity><Text style={styles.seeAll}>Vedi tutte</Text></TouchableOpacity>
+                    </View>
+
                     {transactions.length === 0 ? (
-                        <View style={styles.emptyCard}>
-                            <Text style={styles.emptyText}>Ancora niente qui fuori...</Text>
-                            <Text style={styles.emptySub}>Aggiungi la tua prima spesa!</Text>
+                        <View style={styles.glassEmptyCard}>
+                            <Ionicons name="document-text-outline" size={40} color="rgba(255,255,255,0.2)" />
+                            <Text style={styles.emptyText}>Ancora nessun movimento</Text>
                         </View>
                     ) : (
                         transactions.map((t) => (
-                            <View key={t.id} style={styles.transactionLine}>
-                                <View style={[styles.categoryIconCircle, { backgroundColor: t.category.color }]}>
-                                    <Ionicons name={t.category.icon} size={20} color="white" />
+                            <View key={t.id} style={styles.transactionGlassItem}>
+                                <View style={[styles.trIconContainer, { backgroundColor: t.category.color + '20' }]}>
+                                    <Ionicons name={t.category.icon} size={22} color={t.category.color} />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={styles.trDesc}>{t.description}</Text>
-                                    <Text style={styles.trDate}>{t.category.name} • {t.date}</Text>
+                                    <Text style={styles.trDescriptionText}>{t.description}</Text>
+                                    <Text style={styles.trMetaText}>{t.category.name} • {t.date}</Text>
                                 </View>
                                 <View style={{ alignItems: 'flex-end' }}>
-                                    <Text style={[styles.trAmount, { color: t.type === 'income' ? '#2D5E2E' : '#A02020' }]}>
+                                    <Text style={[styles.trAmountText, { color: t.type === 'income' ? '#34C759' : '#FF3B30' }]}>
                                         {t.type === 'income' ? '+' : '-'}€{t.amount}
                                     </Text>
                                     <TouchableOpacity onPress={() => deleteTransaction(t.id)}>
-                                        <Ionicons name="trash-outline" size={16} color="#444" />
+                                        <Ionicons name="close-outline" size={16} color="rgba(255,255,255,0.4)" />
                                     </TouchableOpacity>
                                 </View>
                             </View>
@@ -264,62 +286,65 @@ export default function App() {
                 </ScrollView>
             </View>
 
-            {/* Add Modal */}
+            {/* Modern Glass Modal */}
             <Modal visible={isModalVisible} animationType="fade" transparent={true}>
-                <View style={styles.modalOverlay}>
-                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Nuova Operazione</Text>
-                            <TouchableOpacity onPress={() => setIsModalVisible(false)}>
-                                <Ionicons name="close-circle" size={32} color="black" />
+                <View style={styles.modalBackdrop}>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.glassModal}>
+                        <View style={styles.modalDragHandle} />
+                        <View style={styles.glassModalHeader}>
+                            <Text style={styles.glassModalTitle}>Nuova Operazione</Text>
+                            <TouchableOpacity onPress={() => setIsModalVisible(false)} style={styles.modalCloseBtn}>
+                                <Ionicons name="close" size={24} color="white" />
                             </TouchableOpacity>
                         </View>
 
-                        <View style={styles.typeSwitcher}>
+                        <View style={styles.glassTypeSwitcher}>
                             <TouchableOpacity
-                                style={[styles.typeBtn, type === 'expense' && { backgroundColor: '#FF6B6B' }]}
+                                style={[styles.glassTypeBtn, type === 'expense' && styles.glassTypeBtnActiveExpense]}
                                 onPress={() => setType('expense')}
                             >
-                                <Text style={styles.typeBtnText}>Uscita</Text>
+                                <Text style={[styles.glassTypeBtnText, type === 'expense' && styles.activeText]}>Uscita</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.typeBtn, type === 'income' && { backgroundColor: '#6BCB77' }]}
+                                style={[styles.glassTypeBtn, type === 'income' && styles.glassTypeBtnActiveIncome]}
                                 onPress={() => setType('income')}
                             >
-                                <Text style={styles.typeBtnText}>Entrata</Text>
+                                <Text style={[styles.glassTypeBtnText, type === 'income' && styles.activeText]}>Entrata</Text>
                             </TouchableOpacity>
                         </View>
 
                         <TextInput
-                            style={styles.cartoonInput}
-                            placeholder="Quanto? (es. 25.00)"
+                            style={styles.modalInput}
+                            placeholder="0.00 €"
+                            placeholderTextColor="rgba(255,255,255,0.2)"
                             keyboardType="decimal-pad"
                             value={amount}
                             onChangeText={setAmount}
                         />
                         <TextInput
-                            style={styles.cartoonInput}
-                            placeholder="Per cosa?"
+                            style={styles.modalInput}
+                            placeholder="Descrizione"
+                            placeholderTextColor="rgba(255,255,255,0.2)"
                             value={description}
                             onChangeText={setDescription}
                         />
 
-                        <Text style={styles.label}>Scegli Categoria:</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll}>
+                        <Text style={styles.glassLabel}>Categoria</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.glassCatRow}>
                             {CATEGORIES.map(cat => (
                                 <TouchableOpacity
                                     key={cat.id}
-                                    style={[styles.catItem, selectedCategory.id === cat.id && { borderColor: 'black', borderWidth: 3 }]}
+                                    style={[styles.glassCatItem, selectedCategory.id === cat.id && { backgroundColor: 'rgba(255,255,255,0.15)', borderColor: cat.color }]}
                                     onPress={() => setSelectedCategory(cat)}
                                 >
-                                    <Ionicons name={cat.icon} size={24} color={cat.color} />
-                                    <Text style={styles.catText}>{cat.name}</Text>
+                                    <Ionicons name={cat.icon} size={22} color={cat.color} />
+                                    <Text style={styles.glassCatName}>{cat.name}</Text>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
-                        <TouchableOpacity style={styles.saveBtn} onPress={addTransaction}>
-                            <Text style={styles.saveBtnText}>Salva nel Libro! 📔</Text>
+                        <TouchableOpacity style={styles.glassSaveBtn} onPress={addTransaction}>
+                            <Text style={styles.glassSaveBtnText}>Conferma operazione</Text>
                         </TouchableOpacity>
                     </KeyboardAvoidingView>
                 </View>
@@ -328,14 +353,14 @@ export default function App() {
     );
 }
 
-const createStyles = (isDark, isLargeScreen) => StyleSheet.create({
+const createStyles = (isLargeScreen, width) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F9F9F9',
+        backgroundColor: '#000',
     },
     onboardingContainer: {
         flex: 1,
-        backgroundColor: '#4D96FF',
+        backgroundColor: '#000',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -344,213 +369,201 @@ const createStyles = (isDark, isLargeScreen) => StyleSheet.create({
         width: '100%',
         maxWidth: 600,
         alignSelf: 'center',
-        backgroundColor: '#FFF',
-        borderLeftWidth: isLargeScreen ? 4 : 0,
-        borderRightWidth: isLargeScreen ? 4 : 0,
-        borderColor: '#000',
+        backgroundColor: '#000',
     },
     centered: {
-        padding: 20,
+        padding: 24,
         width: '100%',
         maxWidth: 400,
     },
-    onboardingCard: {
-        backgroundColor: '#FFF',
-        borderRadius: 30,
-        padding: 30,
-        borderWidth: 4,
-        borderColor: '#000',
-        shadowColor: '#000',
-        shadowOffset: { width: 8, height: 8 },
-        shadowOpacity: 1,
-        shadowRadius: 0,
+    glassOnboardingCard: {
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        borderRadius: 32,
+        padding: 32,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
         alignItems: 'center',
     },
-    emojiTitle: { fontSize: 60, marginBottom: 10 },
-    onboardingTitle: { fontSize: 32, fontWeight: '900', marginBottom: 10, textAlign: 'center' },
-    onboardingSubtitle: { fontSize: 18, textAlign: 'center', marginBottom: 20, color: '#555' },
-    onboardingInput: {
+    iconHole: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: 'rgba(0, 122, 255, 0.1)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 24,
+    },
+    onboardingTitle: { fontSize: 32, fontWeight: '700', color: '#FFF', marginBottom: 8 },
+    onboardingSubtitle: { fontSize: 16, textAlign: 'center', marginBottom: 32, color: 'rgba(255,255,255,0.6)' },
+    glassInput: {
         width: '100%',
-        backgroundColor: '#F0F0F0',
-        borderWidth: 3,
-        borderColor: '#000',
-        borderRadius: 15,
-        padding: 15,
-        fontSize: 24,
-        fontWeight: '700',
-        textAlign: 'center',
-        marginBottom: 25,
-    },
-    cartoonButton: {
-        backgroundColor: '#6BCB77',
-        paddingVertical: 15,
-        paddingHorizontal: 40,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
         borderRadius: 20,
-        borderWidth: 4,
-        borderColor: '#000',
-        shadowColor: '#000',
-        shadowOffset: { width: 4, height: 4 },
-        shadowOpacity: 1,
-        shadowRadius: 0,
+        padding: 20,
+        fontSize: 28,
+        fontWeight: '600',
+        color: '#FFF',
+        textAlign: 'center',
+        marginBottom: 32,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
     },
-    cartoonButtonText: { fontSize: 20, fontWeight: '900', color: '#000' },
+    liquidButton: {
+        backgroundColor: '#007AFF',
+        paddingVertical: 18,
+        width: '100%',
+        borderRadius: 20,
+        alignItems: 'center',
+        shadowColor: '#007AFF',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+    },
+    liquidButtonText: { fontSize: 18, fontWeight: '600', color: '#FFF' },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 25,
-        borderBottomWidth: 4,
-        borderColor: '#000',
+        paddingHorizontal: 24,
+        paddingTop: 32,
+        paddingBottom: 16,
     },
-    headerTitle: { fontSize: 32, fontWeight: '900', letterSpacing: -1 },
-    headerSubtitle: { fontSize: 16, color: '#666', fontWeight: '600' },
+    headerTitle: { fontSize: 34, fontWeight: '800', color: '#FFF' },
+    headerSubtitle: { fontSize: 15, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
     headerAddButton: {
-        backgroundColor: '#FFD93D',
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        borderWidth: 3,
-        borderColor: '#000',
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.08)',
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 4, height: 4 },
-        shadowOpacity: 1,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
     },
-    scrollContent: { padding: 20 },
-    mainCard: {
-        padding: 25,
-        borderRadius: 25,
-        borderWidth: 4,
-        borderColor: '#000',
-        marginBottom: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 6, height: 6 },
-        shadowOpacity: 1,
+    scrollContent: { paddingHorizontal: 24, paddingBottom: 40 },
+    liquidCard: {
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        padding: 24,
+        borderRadius: 32,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        marginBottom: 24,
+        marginTop: 8,
     },
-    cardLabel: { fontSize: 14, fontWeight: '900', color: '#000', opacity: 0.6, marginBottom: 5 },
-    balanceValue: { fontSize: 48, fontWeight: '900', color: '#000' },
-    progressTrack: {
-        height: 15,
-        backgroundColor: '#000',
-        borderRadius: 10,
-        marginTop: 15,
-        overflow: 'hidden',
-    },
-    progressBar: { height: '100%', borderRadius: 10 },
-    cardInfo: { marginTop: 10, fontSize: 14, fontWeight: '700' },
-    statsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 25 },
-    statBox: {
-        width: '48%',
-        padding: 15,
-        borderRadius: 20,
-        borderWidth: 3,
-        borderColor: '#000',
-        shadowColor: '#000',
-        shadowOffset: { width: 4, height: 4 },
-        shadowOpacity: 1,
-    },
-    statLabel: { fontSize: 12, fontWeight: '900', opacity: 0.7 },
-    statValue: { fontSize: 18, fontWeight: '900' },
-    sectionTitle: { fontSize: 22, fontWeight: '900', marginBottom: 15 },
-    emptyCard: {
-        padding: 40,
-        alignItems: 'center',
-        borderWidth: 3,
-        borderColor: '#DDD',
-        borderStyle: 'dashed',
-        borderRadius: 20,
-    },
-    emptyText: { fontSize: 18, fontWeight: '700' },
-    emptySub: { fontSize: 14, color: '#999' },
-    transactionLine: {
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+    cardInfoLabel: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.4)', letterSpacing: 1 },
+    balanceValue: { fontSize: 44, fontWeight: '800', color: '#FFF' },
+    progressContainer: { marginTop: 24 },
+    progressTrack: { height: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden' },
+    progressBar: { height: '100%', borderRadius: 3 },
+    progressInfo: { fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8, textAlign: 'right' },
+    statsLayout: { flexDirection: 'row', gap: 16, marginBottom: 32 },
+    liquidStatBox: {
+        flex: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        padding: 16,
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFF',
-        padding: 15,
-        borderRadius: 20,
-        borderWidth: 3,
-        borderColor: '#000',
+        gap: 12,
+    },
+    statIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+    statBoxLabel: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.4)' },
+    statBoxValue: { fontSize: 16, fontWeight: '700' },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    sectionTitle: { fontSize: 20, fontWeight: '700', color: '#FFF' },
+    seeAll: { color: '#007AFF', fontSize: 14, fontWeight: '600' },
+    glassEmptyCard: {
+        padding: 48,
+        backgroundColor: 'rgba(255,255,255,0.02)',
+        borderRadius: 24,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
+    },
+    emptyText: { color: 'rgba(255,255,255,0.2)', fontSize: 15, marginTop: 12 },
+    transactionGlassItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        padding: 16,
+        borderRadius: 24,
         marginBottom: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.05)',
     },
-    categoryIconCircle: {
-        width: 45,
-        height: 45,
-        borderRadius: 22.5,
-        borderWidth: 2,
-        borderColor: '#000',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 15,
-    },
-    trDesc: { fontSize: 18, fontWeight: '800' },
-    trDate: { fontSize: 13, color: '#666' },
-    trAmount: { fontSize: 18, fontWeight: '900' },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(77, 150, 255, 0.9)',
-        justifyContent: 'center',
-        padding: 20,
-    },
-    modalContent: {
-        backgroundColor: '#FFF',
-        borderRadius: 30,
-        padding: 25,
-        borderWidth: 4,
-        borderColor: '#000',
-        shadowColor: '#000',
-        shadowOffset: { width: 10, height: 10 },
-        shadowOpacity: 1,
-        maxWidth: 500,
-        alignSelf: 'center',
+    trIconContainer: { width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+    trDescriptionText: { fontSize: 16, fontWeight: '600', color: '#FFF' },
+    trMetaText: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
+    trAmountText: { fontSize: 16, fontWeight: '700' },
+    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
+    glassModal: {
+        backgroundColor: '#111',
+        borderTopLeftRadius: 32,
+        borderTopRightRadius: 32,
+        padding: 24,
+        paddingBottom: 48,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        maxWidth: 600,
         width: '100%',
+        alignSelf: 'center',
     },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    modalTitle: { fontSize: 24, fontWeight: '900' },
-    typeSwitcher: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-    typeBtn: {
-        flex: 1,
-        padding: 12,
-        borderRadius: 15,
-        borderWidth: 3,
-        borderColor: '#000',
-        alignItems: 'center',
-        backgroundColor: '#F0F0F0',
+    modalDragHandle: {
+        width: 40,
+        height: 4,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        borderRadius: 2,
+        alignSelf: 'center',
+        marginBottom: 24,
     },
-    typeBtnText: { fontWeight: '900', fontSize: 16 },
-    cartoonInput: {
-        backgroundColor: '#F0F0F0',
-        borderWidth: 3,
-        borderColor: '#000',
-        borderRadius: 15,
-        padding: 15,
+    glassModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+    glassModalTitle: { fontSize: 22, fontWeight: '700', color: '#FFF' },
+    modalCloseBtn: { padding: 4 },
+    glassTypeSwitcher: {
+        flexDirection: 'row',
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        padding: 4,
+        borderRadius: 16,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
+    },
+    glassTypeBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 12 },
+    glassTypeBtnActiveExpense: { backgroundColor: '#FF3B30' },
+    glassTypeBtnActiveIncome: { backgroundColor: '#34C759' },
+    glassTypeBtnText: { color: 'rgba(255,255,255,0.4)', fontWeight: '700', fontSize: 15 },
+    activeText: { color: '#FFF' },
+    modalInput: {
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        borderRadius: 16,
+        padding: 16,
         fontSize: 18,
-        fontWeight: '700',
-        marginBottom: 15,
+        color: '#FFF',
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
     },
-    label: { fontSize: 16, fontWeight: '900', marginBottom: 10 },
-    catScroll: { marginBottom: 20 },
-    catItem: {
-        padding: 15,
-        backgroundColor: '#EEE',
-        borderRadius: 15,
-        borderWidth: 3,
-        borderColor: 'transparent',
-        alignItems: 'center',
+    glassLabel: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.4)', marginBottom: 12, letterSpacing: 1 },
+    glassCatRow: { marginBottom: 32 },
+    glassCatItem: {
+        padding: 16,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.03)',
         marginRight: 10,
-        width: 100,
-    },
-    catText: { fontSize: 12, fontWeight: '800', marginTop: 5 },
-    saveBtn: {
-        backgroundColor: '#FFD93D',
-        padding: 18,
-        borderRadius: 20,
-        borderWidth: 4,
-        borderColor: '#000',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 4, height: 4 },
-        shadowOpacity: 1,
+        width: 100,
+        borderWidth: 1,
+        borderColor: 'transparent',
     },
-    saveBtnText: { fontSize: 20, fontWeight: '900' },
+    glassCatName: { fontSize: 12, color: '#FFF', fontWeight: '600', marginTop: 8 },
+    glassSaveBtn: {
+        backgroundColor: '#007AFF',
+        paddingVertical: 18,
+        borderRadius: 20,
+        alignItems: 'center',
+    },
+    glassSaveBtnText: { color: '#FFF', fontSize: 18, fontWeight: '700' },
 });
