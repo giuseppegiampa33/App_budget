@@ -17,8 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 
-// --- STABLE STORAGE KEYS ---
-const STORAGE_KEY = '@mio_budget_data_v4_final';
+// --- STABLE STORAGE KEY ---
+const STORAGE_KEY = '@mio_budget_app_v4_stable';
 
 const CATEGORIES = [
     { id: 'salary', name: 'Stipendio', icon: 'cash-outline', color: '#34C759' },
@@ -46,81 +46,97 @@ export default function App() {
     // Form States
     const [description, setDescription] = useState('');
     const [amount, setAmount] = useState('');
-    const [type, setType] = useState('expense');
+    const [type, setType] = useState('expense'); // 'income' or 'expense'
     const [selectedCategory, setSelectedCategory] = useState(CATEGORIES[1]);
     const [tempBudget, setTempBudget] = useState('');
 
     // --- Data Management ---
 
-    // Load everything on mount
-    useEffect(() => {
-        const init = async () => {
-            try {
-                const raw = await AsyncStorage.getItem(STORAGE_KEY);
-                if (raw) {
-                    const data = JSON.parse(raw);
-                    setHasOnboarded(data.hasOnboarded || false);
-                    setTotalBudget(parseFloat(data.totalBudget) || 0);
-                    setTransactions(data.transactions || []);
-                }
-            } catch (e) {
-                console.error('Error loading data:', e);
-            } finally {
-                setLoading(false);
+    const initData = async () => {
+        try {
+            console.log('Loading data from AsyncStorage...');
+            const raw = await AsyncStorage.getItem(STORAGE_KEY);
+            if (raw) {
+                const data = JSON.parse(raw);
+                console.log('Data loaded:', data);
+                if (data.hasOnboarded) setHasOnboarded(true);
+                if (data.totalBudget) setTotalBudget(parseFloat(data.totalBudget));
+                if (data.transactions) setTransactions(data.transactions);
+            } else {
+                console.log('No data found in storage.');
             }
-        };
-        init();
+        } catch (e) {
+            console.error('Error loading data:', e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        initData();
     }, []);
 
-    // Sync state to storage whenever it changes
-    const syncToStorage = useCallback(async (newBudget, newTransactions, onboardedStatus) => {
+    const syncData = async (onboarded, budget, list) => {
         try {
             const data = {
-                hasOnboarded: onboardedStatus,
-                totalBudget: newBudget,
-                transactions: newTransactions,
+                hasOnboarded: onboarded,
+                totalBudget: budget,
+                transactions: list,
             };
+            console.log('Syncing to storage:', data);
             await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         } catch (e) {
-            console.error('Error syncing data:', e);
+            console.error('Error saving data:', e);
         }
-    }, []);
+    };
 
     // --- ACTIONS ---
 
-    const handleCompleteOnboarding = async () => {
-        const budgetNum = parseFloat(tempBudget.replace(',', '.'));
-        if (isNaN(budgetNum) || budgetNum <= 0) return;
+    const handleOnboarding = async () => {
+        console.log('Completing onboarding with budget:', tempBudget);
+        const budgetNum = parseFloat(String(tempBudget).replace(',', '.'));
+        if (isNaN(budgetNum) || budgetNum <= 0) {
+            console.log('Invalid budget in onboarding.');
+            return;
+        }
 
         setTotalBudget(budgetNum);
         setHasOnboarded(true);
-        await syncToStorage(budgetNum, [], true);
+        await syncData(true, budgetNum, []);
     };
 
     const handleUpdateBudget = async () => {
-        const budgetNum = parseFloat(tempBudget.replace(',', '.'));
+        console.log('Updating total budget to:', tempBudget);
+        const budgetNum = parseFloat(String(tempBudget).replace(',', '.'));
         if (isNaN(budgetNum)) return;
 
         setTotalBudget(budgetNum);
         setIsEditBudgetVisible(false);
-        await syncToStorage(budgetNum, transactions, true);
+        await syncData(true, budgetNum, transactions);
     };
 
     const handleAddTransaction = async () => {
-        const amtNum = parseFloat(amount.replace(',', '.'));
-        if (!description || isNaN(amtNum) || amtNum <= 0) return;
+        console.log('Adding transaction:', { description, amount, type, selectedCategory });
+        const amtNum = parseFloat(String(amount).replace(',', '.'));
+
+        if (isNaN(amtNum) || amtNum <= 0) {
+            console.log('Invalid amount.');
+            return;
+        }
 
         const newTr = {
             id: Date.now().toString(),
-            description,
+            description: description || 'Senza descrizione',
             amount: amtNum.toFixed(2),
-            type,
+            type: type,
             category: selectedCategory,
             date: new Date().toLocaleDateString('it-IT'),
         };
 
-        const updatedTransactions = [newTr, ...transactions];
-        setTransactions(updatedTransactions);
+        const newList = [newTr, ...transactions];
+        console.log('New transaction list:', newList);
+
+        setTransactions(newList);
         setIsTrModalVisible(false);
 
         // Reset Form
@@ -129,13 +145,22 @@ export default function App() {
         setType('expense');
         setSelectedCategory(CATEGORIES[1]);
 
-        await syncToStorage(totalBudget, updatedTransactions, true);
+        await syncData(true, totalBudget, newList);
     };
 
     const handleDeleteTransaction = async (id) => {
-        const updated = transactions.filter(t => t.id !== id);
-        setTransactions(updated);
-        await syncToStorage(totalBudget, updated, true);
+        console.log('Deleting transaction:', id);
+        const newList = transactions.filter(t => t.id !== id);
+        setTransactions(newList);
+        await syncData(true, totalBudget, newList);
+    };
+
+    const handleReset = async () => {
+        console.log('Resetting all data...');
+        await AsyncStorage.removeItem(STORAGE_KEY);
+        setHasOnboarded(false);
+        setTotalBudget(0);
+        setTransactions([]);
     };
 
     // --- CALCULATIONS ---
@@ -155,18 +180,9 @@ export default function App() {
         return Math.min((totalExpenses / budgetNum) * 100, 100);
     }, [transactions, totalBudget]);
 
-    const totals = useMemo(() => {
-        return transactions.reduce((acc, curr) => {
-            const val = parseFloat(curr.amount) || 0;
-            if (curr.type === 'income') acc.income += val;
-            else acc.expense += val;
-            return acc;
-        }, { income: 0, expense: 0 });
-    }, [transactions]);
-
     if (loading) {
         return (
-            <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+            <View style={[styles.container, styles.centeredContent]}>
                 <ActivityIndicator size="large" color="#007AFF" />
             </View>
         );
@@ -176,30 +192,27 @@ export default function App() {
 
     if (!hasOnboarded) {
         return (
-            <SafeAreaView style={styles.container}>
+            <View style={styles.container}>
                 <ExpoStatusBar style="light" />
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.onboardingWrapper}>
-                    <View style={styles.glassCardBig}>
-                        <View style={styles.iconCircleOnboarding}>
-                            <Ionicons name="wallet-outline" size={48} color="#007AFF" />
-                        </View>
-                        <Text style={styles.title}>Mio Budget</Text>
-                        <Text style={styles.subtitle}>Inserisci il tuo budget attuale per cominciare</Text>
+                <View style={styles.onboardingOverlay}>
+                    <View style={styles.onboardingCard}>
+                        <Ionicons name="sparkles" size={50} color="#007AFF" style={{ marginBottom: 20 }} />
+                        <Text style={styles.title}>Ciao!</Text>
+                        <Text style={styles.subtitle}>Inserisci il tuo budget iniziale</Text>
                         <TextInput
                             style={styles.onboardingInput}
-                            placeholder="0.00 €"
+                            placeholder="0.00"
                             placeholderTextColor="rgba(255,255,255,0.2)"
-                            keyboardType="numeric"
+                            keyboardType="decimal-pad"
                             value={tempBudget}
                             onChangeText={setTempBudget}
-                            autoFocus
                         />
-                        <TouchableOpacity style={styles.primaryBtn} onPress={handleCompleteOnboarding}>
-                            <Text style={styles.primaryBtnText}>Configura</Text>
+                        <TouchableOpacity style={styles.primaryBtn} onPress={handleOnboarding}>
+                            <Text style={styles.primaryBtnText}>Configura Tutto</Text>
                         </TouchableOpacity>
                     </View>
-                </KeyboardAvoidingView>
-            </SafeAreaView>
+                </View>
+            </View>
         );
     }
 
@@ -211,119 +224,124 @@ export default function App() {
                 {/* Header */}
                 <View style={styles.header}>
                     <View>
-                        <Text style={styles.headerTitle}>Dashboard</Text>
-                        <Text style={styles.headerSub}>La tua cronologia finanziaria</Text>
+                        <Text style={styles.headerTitle}>Budget</Text>
+                        <Text style={styles.headerSub}>Dashboard Finanziaria</Text>
                     </View>
                     <TouchableOpacity
-                        style={styles.circleAddBtn}
+                        style={styles.headerBtn}
                         onPress={() => setIsTrModalVisible(true)}
                     >
                         <Ionicons name="add" size={28} color="white" />
                     </TouchableOpacity>
                 </View>
 
-                <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                <ScrollView contentContainerStyle={styles.scrollContent}>
 
-                    {/* MAIN GLASS CARD */}
+                    {/* GLASS CARD */}
                     <View style={styles.glassCardMain}>
                         <View style={styles.glassRow}>
                             <Text style={styles.labelTiny}>SALDO ATTUALE</Text>
                             <TouchableOpacity onPress={() => { setTempBudget(totalBudget.toString()); setIsEditBudgetVisible(true); }}>
-                                <Ionicons name="settings-outline" size={18} color="rgba(255,255,255,0.4)" />
+                                <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.4)" />
                             </TouchableOpacity>
                         </View>
                         <Text style={styles.balanceText}>€ {currentBalance.toFixed(2)}</Text>
 
-                        <View style={styles.progressContainer}>
+                        <View style={styles.progressBox}>
                             <View style={styles.progressTrack}>
                                 <View style={[styles.progressBar, { width: `${spendingPercentage}%`, backgroundColor: spendingPercentage > 85 ? '#FF3B30' : '#007AFF' }]} />
                             </View>
-                            <Text style={styles.progressLabel}>{spendingPercentage.toFixed(0)}% del budget (€{totalBudget})</Text>
+                            <Text style={styles.progressLabel}>{spendingPercentage.toFixed(0)}% del budget base (€{totalBudget})</Text>
                         </View>
                     </View>
 
-                    {/* STATS */}
+                    {/* TOTALS */}
                     <View style={styles.statsRow}>
-                        <View style={styles.glassStatBox}>
-                            <Ionicons name="arrow-up-outline" size={16} color="#34C759" />
+                        <View style={styles.statCard}>
+                            <Ionicons name="caret-up-outline" size={18} color="#34C759" />
                             <View>
                                 <Text style={styles.statLabel}>ENTRATE</Text>
-                                <Text style={[styles.statValue, { color: '#34C759' }]}>+€{totals.income.toFixed(0)}</Text>
+                                <Text style={[styles.statValue, { color: '#34C759' }]}>
+                                    +€{transactions.filter(t => t.type === 'income').reduce((a, b) => a + parseFloat(b.amount), 0).toFixed(0)}
+                                </Text>
                             </View>
                         </View>
-                        <View style={styles.glassStatBox}>
-                            <Ionicons name="arrow-down-outline" size={16} color="#FF3B30" />
+                        <View style={styles.statCard}>
+                            <Ionicons name="caret-down-outline" size={18} color="#FF3B30" />
                             <View>
                                 <Text style={styles.statLabel}>USCITE</Text>
-                                <Text style={[styles.statValue, { color: '#FF3B30' }]}>-€{totals.expense.toFixed(0)}</Text>
+                                <Text style={[styles.statValue, { color: '#FF3B30' }]}>
+                                    -€{transactions.filter(t => t.type === 'expense').reduce((a, b) => a + parseFloat(b.amount), 0).toFixed(0)}
+                                </Text>
                             </View>
                         </View>
                     </View>
 
-                    {/* TRANSACTIONS */}
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>Cronologia</Text>
-                        <Text style={styles.sectionSub}>Ultime operazioni</Text>
-                    </View>
-
+                    {/* HISTORY */}
+                    <Text style={styles.sectionTitle}>Cronologia</Text>
                     {transactions.length === 0 ? (
-                        <View style={styles.emptyView}>
+                        <View style={styles.emptyCard}>
                             <Ionicons name="receipt-outline" size={40} color="rgba(255,255,255,0.1)" />
-                            <Text style={styles.emptyText}>Nessuna transazione registrata</Text>
+                            <Text style={styles.emptyText}>Ancora nulla da mostrare</Text>
                         </View>
                     ) : (
-                        transactions.map(item => (
-                            <View key={item.id} style={styles.glassItem}>
-                                <View style={[styles.iconBox, { backgroundColor: item.category.color + '20' }]}>
-                                    <Ionicons name={item.category.icon} size={22} color={item.category.color} />
+                        transactions.map(t => (
+                            <View key={t.id} style={styles.transactionCard}>
+                                <View style={[styles.iconContainer, { backgroundColor: t.category.color + '20' }]}>
+                                    <Ionicons name={t.category.icon} size={22} color={t.category.color} />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={styles.itemDesc}>{item.description}</Text>
-                                    <Text style={styles.itemMeta}>{item.category.name} • {item.date}</Text>
+                                    <Text style={styles.itemTitle}>{t.description}</Text>
+                                    <Text style={styles.itemSubtitle}>{t.category.name} • {t.date}</Text>
                                 </View>
                                 <View style={{ alignItems: 'flex-end' }}>
-                                    <Text style={[styles.itemAmount, { color: item.type === 'income' ? '#34C759' : '#FF3B30' }]}>
-                                        {item.type === 'income' ? '+' : '-'}€{item.amount}
+                                    <Text style={[styles.itemAmt, { color: t.type === 'income' ? '#34C759' : '#FF3B30' }]}>
+                                        {t.type === 'income' ? '+' : '-'}€{t.amount}
                                     </Text>
-                                    <TouchableOpacity onPress={() => handleDeleteTransaction(item.id)}>
-                                        <Ionicons name="remove-circle-outline" size={16} color="rgba(255,255,255,0.2)" />
+                                    <TouchableOpacity onPress={() => handleDeleteTransaction(t.id)}>
+                                        <Ionicons name="trash-outline" size={16} color="rgba(255,255,255,0.2)" />
                                     </TouchableOpacity>
                                 </View>
                             </View>
                         ))
                     )}
+
+                    <TouchableOpacity style={styles.resetBtn} onPress={handleReset}>
+                        <Text style={styles.resetBtnText}>Resetta tutti i dati</Text>
+                    </TouchableOpacity>
+
                 </ScrollView>
             </View>
 
-            {/* MODAL: ADD TRANSACTION */}
+            {/* ADD TRANSACTION MODAL */}
             <Modal visible={isTrModalVisible} animationType="slide" transparent={true}>
                 <View style={styles.modalOverlay}>
-                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalContent}>
+                    <View style={styles.modalContainer}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Nuova Spesa/Entrata</Text>
-                            <TouchableOpacity onPress={() => setIsTrModalVisible(false)}>
+                            <Text style={styles.modalTitle}>Nuova Operazione</Text>
+                            <TouchableOpacity onPress={() => setIsTrModalVisible(false)} style={styles.closeBtn}>
                                 <Ionicons name="close" size={24} color="white" />
                             </TouchableOpacity>
                         </View>
 
                         <View style={styles.typeSwitcher}>
                             <TouchableOpacity
-                                style={[styles.typeBtn, type === 'expense' && { backgroundColor: '#FF3B30' }]}
+                                style={[styles.typeButton, type === 'expense' && { backgroundColor: '#FF3B30' }]}
                                 onPress={() => setType('expense')}
                             >
-                                <Text style={styles.typeBtnText}>Uscita</Text>
+                                <Text style={styles.typeButtonText}>Uscita</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.typeBtn, type === 'income' && { backgroundColor: '#34C759' }]}
+                                style={[styles.typeButton, type === 'income' && { backgroundColor: '#34C759' }]}
                                 onPress={() => setType('income')}
                             >
-                                <Text style={styles.typeBtnText}>Entrata</Text>
+                                <Text style={styles.typeButtonText}>Entrata</Text>
                             </TouchableOpacity>
                         </View>
 
                         <TextInput
                             style={styles.modalInput}
-                            placeholder="Importo (es. 20.00)"
+                            placeholder="0.00"
                             placeholderTextColor="rgba(255,255,255,0.2)"
                             keyboardType="decimal-pad"
                             value={amount}
@@ -331,54 +349,53 @@ export default function App() {
                         />
                         <TextInput
                             style={styles.modalInput}
-                            placeholder="Descrizione"
+                            placeholder="Descrizione (es. Spesa Esselunga)"
                             placeholderTextColor="rgba(255,255,255,0.2)"
                             value={description}
                             onChangeText={setDescription}
                         />
 
-                        <Text style={styles.labelTiny}>Scegli Categoria</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catRow}>
+                        <Text style={styles.labelTiny}>CATEGORIA</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll}>
                             {CATEGORIES.map(cat => (
                                 <TouchableOpacity
                                     key={cat.id}
-                                    style={[styles.catItem, selectedCategory.id === cat.id && { borderColor: cat.color, borderWidth: 1 }]}
+                                    style={[styles.catCard, selectedCategory.id === cat.id && { borderColor: cat.color, borderWidth: 1 }]}
                                     onPress={() => setSelectedCategory(cat)}
                                 >
                                     <Ionicons name={cat.icon} size={22} color={cat.color} />
-                                    <Text style={styles.catName}>{cat.name}</Text>
+                                    <Text style={styles.catCardName}>{cat.name}</Text>
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>
 
-                        <TouchableOpacity style={styles.actionBtn} onPress={handleAddTransaction}>
-                            <Text style={styles.actionBtnText}>Conferma operazione</Text>
+                        <TouchableOpacity style={styles.confirmActionBtn} onPress={handleAddTransaction}>
+                            <Text style={styles.confirmActionBtnText}>Salva Operazione</Text>
                         </TouchableOpacity>
-                    </KeyboardAvoidingView>
+                    </View>
                 </View>
             </Modal>
 
-            {/* MODAL: EDIT BUDGET */}
+            {/* EDIT BUDGET MODAL */}
             <Modal visible={isEditBudgetVisible} animationType="fade" transparent={true}>
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContentSmall}>
-                        <Text style={styles.modalTitle}>Modifica Budget</Text>
-                        <Text style={styles.modalSub}>Aggiorna il tuo budget base</Text>
+                    <View style={styles.smallModal}>
+                        <Text style={styles.modalTitle}>Specifica Budget</Text>
                         <TextInput
                             style={styles.modalInput}
-                            placeholder="0.00 €"
+                            placeholder="Es. 1500"
                             placeholderTextColor="rgba(255,255,255,0.2)"
-                            keyboardType="numeric"
+                            keyboardType="decimal-pad"
                             value={tempBudget}
                             onChangeText={setTempBudget}
                             autoFocus
                         />
-                        <View style={styles.btnRow}>
-                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditBudgetVisible(false)}>
-                                <Text style={styles.cancelBtnText}>Annulla</Text>
+                        <View style={styles.modalBtnRow}>
+                            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setIsEditBudgetVisible(false)}>
+                                <Text style={styles.modalCancelBtnText}>Annulla</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.confirmBtn} onPress={handleUpdateBudget}>
-                                <Text style={styles.confirmBtnText}>Salva</Text>
+                            <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleUpdateBudget}>
+                                <Text style={styles.modalConfirmBtnText}>Salva</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -391,29 +408,21 @@ export default function App() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#000' },
+    centeredContent: { justifyContent: 'center', alignItems: 'center' },
     contentWrapper: { flex: 1, width: '100%', maxWidth: 600, alignSelf: 'center' },
-    onboardingWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-    glassCardBig: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 32,
+    onboardingOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+    onboardingCard: {
         padding: 32,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 30,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
         width: '100%',
         maxWidth: 400,
         alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
     },
-    iconCircleOnboarding: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: 'rgba(0,122,255,0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    title: { fontSize: 32, fontWeight: '800', color: '#FFF', marginBottom: 8 },
-    subtitle: { fontSize: 16, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginBottom: 32 },
+    title: { fontSize: 32, fontWeight: '800', color: '#FFF', marginBottom: 5 },
+    subtitle: { fontSize: 16, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginBottom: 30 },
     onboardingInput: {
         width: '100%',
         backgroundColor: 'rgba(255,255,255,0.05)',
@@ -422,131 +431,57 @@ const styles = StyleSheet.create({
         fontSize: 28,
         color: '#FFF',
         textAlign: 'center',
-        marginBottom: 32,
+        marginBottom: 30,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.1)',
     },
-    primaryBtn: {
-        backgroundColor: '#007AFF',
-        width: '100%',
-        padding: 18,
-        borderRadius: 16,
-        alignItems: 'center',
-    },
+    primaryBtn: { backgroundColor: '#007AFF', padding: 18, borderRadius: 16, width: '100%', alignItems: 'center' },
     primaryBtnText: { color: '#FFF', fontSize: 18, fontWeight: '700' },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: 40 },
-    headerTitle: { fontSize: 34, fontWeight: '800', color: '#FFF' },
-    headerSub: { fontSize: 14, color: 'rgba(255,255,255,0.3)', marginTop: 4 },
-    circleAddBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: 'rgba(255,255,255,0.08)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-    },
+    headerTitle: { fontSize: 32, fontWeight: '800', color: '#FFF' },
+    headerSub: { fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
+    headerBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.08)', justifyContent: 'center', alignItems: 'center' },
     scrollContent: { paddingHorizontal: 24, paddingBottom: 40 },
-    glassCardMain: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 24,
-        padding: 24,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        marginBottom: 24,
-    },
-    glassRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-    labelTiny: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.4)', letterSpacing: 1 },
-    balanceText: { fontSize: 48, fontWeight: '800', color: '#FFF' },
-    progressContainer: { marginTop: 24 },
+    glassCardMain: { backgroundColor: 'rgba(255,255,255,0.05)', padding: 24, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginBottom: 24 },
+    glassRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    labelTiny: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.4)', letterSpacing: 1 },
+    balanceText: { fontSize: 44, fontWeight: '800', color: '#FFF' },
+    progressBox: { marginTop: 20 },
     progressTrack: { height: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden' },
     progressBar: { height: '100%', borderRadius: 3 },
     progressLabel: { fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8, textAlign: 'right' },
-    statsRow: { flexDirection: 'row', gap: 16, marginBottom: 32 },
-    glassStatBox: {
-        flex: 1,
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        padding: 16,
-        borderRadius: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
-    },
+    statsRow: { flexDirection: 'row', gap: 12, marginBottom: 30 },
+    statCard: { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', padding: 16, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 10 },
     statLabel: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.4)' },
     statValue: { fontSize: 16, fontWeight: '700' },
-    sectionHeader: { marginBottom: 16 },
-    sectionTitle: { fontSize: 22, fontWeight: '700', color: '#FFF' },
-    sectionSub: { fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 2 },
-    emptyView: { padding: 48, alignItems: 'center' },
-    emptyText: { color: 'rgba(255,255,255,0.2)', fontSize: 14, marginTop: 12 },
-    glassItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.03)',
-        borderRadius: 20,
-        padding: 16,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
-    },
-    iconBox: { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-    itemDesc: { fontSize: 16, fontWeight: '600', color: '#FFF' },
-    itemMeta: { fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 2 },
-    itemAmount: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 24 },
-    modalContent: {
-        backgroundColor: '#111',
-        borderRadius: 32,
-        padding: 24,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-    },
-    modalContentSmall: {
-        backgroundColor: '#111',
-        borderRadius: 24,
-        padding: 24,
-        width: '100%',
-        maxWidth: 350,
-        alignSelf: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-    },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+    sectionTitle: { fontSize: 22, fontWeight: '700', color: '#FFF', marginBottom: 16 },
+    emptyCard: { padding: 40, alignItems: 'center' },
+    emptyText: { color: 'rgba(255,255,255,0.2)', fontSize: 14, marginTop: 10 },
+    transactionCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.03)', padding: 16, borderRadius: 20, marginBottom: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    iconContainer: { width: 42, height: 42, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+    itemTitle: { fontSize: 16, fontWeight: '600', color: '#FFF' },
+    itemSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 2 },
+    itemAmt: { fontSize: 16, fontWeight: '700' },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
+    modalContainer: { backgroundColor: '#111', borderRadius: 30, padding: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+    smallModal: { backgroundColor: '#111', borderRadius: 24, padding: 24, width: '100%', maxWidth: 350, alignSelf: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
     modalTitle: { fontSize: 24, fontWeight: '700', color: '#FFF' },
-    modalSub: { fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 24 },
-    typeSwitcher: { flexDirection: 'row', gap: 8, marginBottom: 24 },
-    typeBtn: { flex: 1, padding: 12, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)' },
-    typeBtnText: { color: '#FFF', fontWeight: '700' },
-    modalInput: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
-        borderRadius: 16,
-        padding: 16,
-        fontSize: 18,
-        color: '#FFF',
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
-    },
-    catRow: { marginTop: 12, marginBottom: 32 },
-    catItem: {
-        width: 90,
-        padding: 16,
-        borderRadius: 16,
-        backgroundColor: 'rgba(255,255,255,0.03)',
-        marginRight: 10,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'transparent',
-    },
-    catName: { fontSize: 11, color: '#FFF', fontWeight: '600', marginTop: 8 },
-    actionBtn: { backgroundColor: '#007AFF', padding: 18, borderRadius: 16, alignItems: 'center' },
-    actionBtnText: { color: '#FFF', fontSize: 18, fontWeight: '700' },
-    btnRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
-    cancelBtn: { flex: 1, padding: 16, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center' },
-    cancelBtnText: { color: 'rgba(255,255,255,0.5)', fontWeight: '700' },
-    confirmBtn: { flex: 1, padding: 16, borderRadius: 16, backgroundColor: '#007AFF', alignItems: 'center' },
-    confirmBtnText: { color: '#FFF', fontWeight: '700' },
+    closeBtn: { padding: 4 },
+    typeSwitcher: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+    typeButton: { flex: 1, padding: 12, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)' },
+    typeButtonText: { color: '#FFF', fontWeight: '700' },
+    modalInput: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, padding: 16, fontSize: 18, color: '#FFF', marginBottom: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    catScroll: { marginTop: 10, marginBottom: 30 },
+    catCard: { width: 90, padding: 16, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.03)', marginRight: 10, alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
+    catCardName: { fontSize: 11, color: '#FFF', fontWeight: '600', marginTop: 8 },
+    confirmActionBtn: { backgroundColor: '#007AFF', padding: 18, borderRadius: 16, alignItems: 'center' },
+    confirmActionBtnText: { color: '#FFF', fontSize: 18, fontWeight: '700' },
+    modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+    modalCancelBtn: { flex: 1, padding: 16, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center' },
+    modalCancelBtnText: { color: 'rgba(255,255,255,0.4)', fontWeight: '700' },
+    modalConfirmBtn: { flex: 1, padding: 16, borderRadius: 16, backgroundColor: '#007AFF', alignItems: 'center' },
+    modalConfirmBtnText: { color: '#FFF', fontWeight: '700' },
+    resetBtn: { marginTop: 40, alignSelf: 'center', padding: 10 },
+    resetBtnText: { color: 'rgba(255,0,0,0.4)', fontSize: 12, textDecorationLine: 'underline' },
 });
