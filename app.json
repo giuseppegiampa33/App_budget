@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Mio Budget",
+    "slug": "ios-budget-pwa",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "display": "standalone",
+      "themeColor": "#007AFF",
+      "backgroundColor": "#F2F2F7",
+      "barStyle": "black-translucent",
+      "description": "Un'app per la gestione delle finanze personali con estetica iOS."
+    }
+  }
+}
